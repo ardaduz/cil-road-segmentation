@@ -109,7 +109,7 @@ def process_images(satellite_image, road_image):
     # cv2.imshow("Road", road_image_final)
     # cv2.waitKey()
 
-    return True, satellite_image, road_image
+    return True, satellite_image, road_image_final
 
 
 def get_one_data_pair(city, api_key, location, size):
