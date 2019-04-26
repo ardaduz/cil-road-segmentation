@@ -22,9 +22,11 @@ Code taken from https://github.com/tensorflow/models/blob/master/samples/outreac
 I just made minor changes in the data preprocessing and postprocessing steps:
 - Adjusted the input pipeline to work with our data
 - Added random 90-degree rotations to the preprocessing pipeline
-- Added root mean squared error
+- Added root mean squared error as a metric for selecting the best model/checkpoint
+- Added early stopping
 - Resizing input images and predictions to match the required shape
 - Added the provided code to mask our predictions for submission
+- Probably some minor things that I forgot
 
 ### baseline-graph-cut
 TODO
