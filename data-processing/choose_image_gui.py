@@ -246,11 +246,11 @@ if __name__ == '__main__':
     index_end = 10000
     sampling_rate = 1
 
-    read_directory_X = '../google-maps-data/images/'
-    read_directory_y = '../google-maps-data/groundtruth/'
+    read_directory_X = '../../google-maps-data/images/'
+    read_directory_y = '../../google-maps-data/groundtruth/'
 
-    save_directory_X = '../google-maps-data-chosen/images/'
-    save_directory_y = '../google-maps-data-chosen/groundtruth/'
+    save_directory_X = '../../google-maps-data-chosen/images/'
+    save_directory_y = '../../google-maps-data-chosen/groundtruth/'
 
     app = QApplication(sys.argv)
     w = MyWidget(None, read_directory_X, read_directory_y, save_directory_X, save_directory_y, index_start, index_end,
