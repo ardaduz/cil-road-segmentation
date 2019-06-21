@@ -109,3 +109,4 @@ venv.bak/
 
 # Tensorflow model/weight files
 *.hdf5
+runs/
