@@ -1,12 +1,11 @@
 import sys
-import os
+import cv2
 import io
 import glob
 import numpy as np
 import pandas as pd
 from scipy import stats
 from urllib import request
-import cv2
 from PIL import Image
 
 
@@ -84,7 +83,7 @@ def process_images(satellite_image, road_image):
     # cv2.imshow("Original Road", road_image)
 
     road_image = cv2.cvtColor(road_image, cv2.COLOR_BGR2GRAY)
-    _, road_image = cv2.threshold(road_image, 252, 255, type=cv2.THRESH_BINARY)
+    _, road_image = cv2.threshold(road_image, 253, 255, type=cv2.THRESH_BINARY)
 
     is_road = road_image == 255
     percentage_road = np.sum(is_road.flatten()) / ((height - 40) * (width - 40))
@@ -94,7 +93,7 @@ def process_images(satellite_image, road_image):
 
     road_image = cv2.GaussianBlur(road_image, (13, 13), 5, borderType=cv2.BORDER_REFLECT101)
     _, road_image = cv2.threshold(road_image, 80, 255, type=cv2.THRESH_BINARY)
-    contours, hierarchy = cv2.findContours(road_image, mode=cv2.RETR_LIST, method=cv2.CHAIN_APPROX_NONE)
+    _, contours, hierarchy = cv2.findContours(road_image, mode=cv2.RETR_LIST, method=cv2.CHAIN_APPROX_NONE)
 
     large_contours = []
     for contour in contours:
