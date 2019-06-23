@@ -14,11 +14,12 @@ from model import *
 
 
 class Prediction:
-    def __init__(self, test_dataset, test_filenames, model, logdir):
+    def __init__(self, test_dataset, test_filenames, model, logdir, model_path):
         self.test_dataset = test_dataset
         self.test_filenames = test_filenames
         self.model = model
         self.logdir = logdir
+        self.model_path = model_path
 
         ### Mask to submission
         self.foreground_threshold = 0.25  # percentage of pixels > 1 required to assign a foreground label to a patch
@@ -98,7 +99,7 @@ class Prediction:
 
 if __name__ == "__main__":
     ### SET THIS !!! ###
-    logdir = "/home/ardaduz/ETH/CIL/project/cil-road-segmentation/py-code/runs/20190622-024235"
+    logdir = "/home/ardaduz/ETH/CIL/project/cil-road-segmentation/py-code/runs/20190623-021923"
 
     img_dir = '../../competition-data/training/images'
     label_dir = '../../competition-data/training/groundtruth'
@@ -106,13 +107,13 @@ if __name__ == "__main__":
 
     validation_split_ratio = 0.2
 
-    random_sized_crops_min = 360  # randomly crops random sized patch, this is resized to 304 later (adds scale augmentation, only training!)
+    random_sized_crops_min = 384  # randomly crops random sized patch, this is resized to 304 later (adds scale augmentation, only training!)
     augment_color = True  # applies slight random hue, contrast, brightness change only on training data
 
-    input_size = 256
+    input_size = 384
 
     learning_rate = 1e-3
-    batch_size = 16
+    batch_size = 4
     epochs = 100
 
     dataset = Dataset(DEBUG_MODE=False,
@@ -137,7 +138,8 @@ if __name__ == "__main__":
     predictor = Prediction(test_dataset=test_dataset,
                            test_filenames=dataset.x_test_filenames,
                            model=model,
-                           logdir=logdir)
+                           logdir=logdir,
+                           model_path=model_path)
 
     predictor.predict()
     predictor.submit()

@@ -33,22 +33,22 @@ def create_callbacks():
 
     model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
         filepath=os.path.join(logdir, 'model_epoch{epoch:03d}_rmse{val_root_mean_squared_error:.4f}.hdf5'),
-        monitor="val_loss",
+        monitor="val_dice_loss",
         verbose=1,
         save_best_only=True,
         period=1,
         save_weights_only=False)
 
-    early_stopping_callback = tf.keras.callbacks.EarlyStopping(monitor='val_root_mean_squared_error',
-                                                               patience=15,
+    early_stopping_callback = tf.keras.callbacks.EarlyStopping(monitor='val_dice_loss',
+                                                               patience=20,
                                                                verbose=1,
                                                                restore_best_weights=True)
 
     reduce_lr_on_plateau_callback = tf.keras.callbacks.ReduceLROnPlateau(monitor='loss',
-                                                                         factor=0.9,
+                                                                         factor=0.5,
                                                                          patience=10,
-                                                                         min_delta=0.03,
-                                                                         min_lr=5e-5,
+                                                                         min_delta=0.001,
+                                                                         min_lr=1e-6,
                                                                          cooldown=5,
                                                                          verbose=1)
 
@@ -74,7 +74,7 @@ if __name__ == "__main__":
 
     zipdir = os.path.join(logdir, "code.zip")
     zippedfiles = zipfile.ZipFile(zipdir, 'w', zipfile.ZIP_DEFLATED)
-    zip_code('code/', zippedfiles)
+    zip_code('./', zippedfiles)
     zippedfiles.close()
 
     ### CONFIG ###
@@ -86,13 +86,13 @@ if __name__ == "__main__":
 
     validation_split_ratio = 0.2
 
-    random_sized_crops_min = 360  # randomly crops random sized patch, this is resized to 304 later (adds scale augmentation, only training!)
+    random_sized_crops_min = 384  # randomly crops random sized patch, this is resized to 304 later (adds scale augmentation, only training!)
     augment_color = True  # applies slight random hue, contrast, brightness change only on training data
 
-    input_size = 256
+    input_size = 384
 
     learning_rate = 1e-3
-    batch_size = 8
+    batch_size = 4
     epochs = 100
 
     ### START ###
@@ -117,26 +117,44 @@ if __name__ == "__main__":
         with tf.Session() as sess:
             batch_of_imgs, label = sess.run(next_element)
 
-            # Running next element in our graph will produce a batch of images
             plt.figure(figsize=(10, 10))
-            img = batch_of_imgs[0]
+            for i in range(0, batch_size):
+                # Running next element in our graph will produce a batch of images
+                img = batch_of_imgs[i]
 
-            plt.subplot(1, 2, 1)
-            plt.imshow(img)
+                plt.subplot(batch_size, 2, i * 2 + 1)
+                plt.imshow(img)
 
-            plt.subplot(1, 2, 2)
-            plt.imshow(label[0, :, :, 0], cmap='gray')
+                plt.subplot(batch_size, 2, i * 2 + 2)
+                plt.imshow(label[i, :, :, 0], cmap='gray')
             plt.show()
-
-    optimizer = tf.keras.optimizers.Adam(lr=learning_rate, amsgrad=True)
-    model = BaselineModel(input_shape=(input_size, input_size, 3), optimizer=optimizer)
-    model = model.get_compiled_model()
 
     callbacks = create_callbacks()
 
+    optimizer = tf.keras.optimizers.Adam(lr=1e-3)
+    base_model = XceptionUNet(input_shape=(input_size, input_size, 3), optimizer=optimizer)
+    model = base_model.get_model()
+    model.compile(optimizer=optimizer,
+                  loss=LossesMetrics.bce_dice_loss,
+                  metrics=[LossesMetrics.dice_loss, LossesMetrics.root_mean_squared_error])
+    print(model.summary())
     model.fit(x=train_dataset,
-              steps_per_epoch=5*int(np.ceil(dataset.num_train_examples / float(batch_size))),
-              epochs=epochs,
+              steps_per_epoch=5 * int(np.ceil(dataset.num_train_examples / float(batch_size))),
+              epochs=15,
+              validation_data=validation_dataset,
+              validation_steps=int(np.ceil(dataset.num_val_examples / float(batch_size))),
+              callbacks=callbacks)
+
+    optimizer = tf.keras.optimizers.Adam(lr=1e-4)
+    for layer in model.layers:
+        layer.trainable = True
+    model.compile(optimizer=optimizer,
+                  loss=LossesMetrics.bce_dice_loss,
+                  metrics=[LossesMetrics.dice_loss, LossesMetrics.root_mean_squared_error])
+    print(model.summary())
+    model.fit(x=train_dataset,
+              steps_per_epoch=5 * int(np.ceil(dataset.num_train_examples / float(batch_size))),
+              epochs=200,
               validation_data=validation_dataset,
               validation_steps=int(np.ceil(dataset.num_val_examples / float(batch_size))),
               callbacks=callbacks)

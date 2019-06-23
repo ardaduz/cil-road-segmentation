@@ -46,7 +46,8 @@ class Dataset:
         self.x_train_filenames, self.x_val_filenames, self.y_train_filenames, self.y_val_filenames = \
             train_test_split(x_train_filenames,
                              y_train_filenames,
-                             test_size=self.validation_split_ratio)
+                             test_size=self.validation_split_ratio,
+                             random_state=7139)
 
         self.num_train_examples = len(self.x_train_filenames)
         self.num_val_examples = len(self.x_val_filenames)
@@ -88,7 +89,7 @@ class Dataset:
         dataset = dataset.map(preprocessing_function, num_parallel_calls=self.num_parallel_calls)
 
         if shuffle:
-            dataset = dataset.shuffle(num_files)
+            dataset = dataset.shuffle(num_files, seed=111, reshuffle_each_iteration=True)
 
         if repeat:
             dataset = dataset.repeat()

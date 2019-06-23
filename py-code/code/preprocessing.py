@@ -68,9 +68,12 @@ class Preprocessing:
             img, label = Preprocessing.rot_img(img, label)
 
             if change_color:
-                img = tf.image.random_hue(img, max_delta=0.1, seed=420)
-                img = tf.image.random_contrast(img, lower=0.0, upper=0.1, seed=420)
-                img = tf.image.random_brightness(img, max_delta=0.2, seed=420)
+                img = tf.image.random_hue(img, max_delta=0.15, seed=420)
+                img = tf.image.random_contrast(img, lower=0.7, upper=1.3, seed=420)
+                img = tf.image.random_brightness(img, max_delta=0.3, seed=420)
+
+                img = tf.minimum(img, 255.0)
+                img = tf.maximum(img, 0.0)
 
         else:  # test or validation, don't do anything, just resize to the desired input size
             img = tf.image.resize(img, size=[input_size, input_size])
