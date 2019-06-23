@@ -4,7 +4,7 @@ import re
 from PIL import Image
 import imageio
 import tensorflow as tf
-from tensorflow.python.keras import models
+from tensorflow.python.keras import models, layers
 import numpy as np
 import matplotlib.image as mpimg
 import pandas as pd
@@ -99,7 +99,7 @@ class Prediction:
 
 if __name__ == "__main__":
     ### SET THIS !!! ###
-    logdir = "/home/ardaduz/ETH/CIL/project/cil-road-segmentation/py-code/runs/20190623-021923"
+    logdir = "/home/ardaduz/ETH/CIL/project/cil-road-segmentation/py-code/runs/20190623-053603"
 
     img_dir = '../../competition-data/training/images'
     label_dir = '../../competition-data/training/groundtruth'
@@ -110,7 +110,7 @@ if __name__ == "__main__":
     random_sized_crops_min = 384  # randomly crops random sized patch, this is resized to 304 later (adds scale augmentation, only training!)
     augment_color = True  # applies slight random hue, contrast, brightness change only on training data
 
-    input_size = 384
+    input_size = 576
 
     learning_rate = 1e-3
     batch_size = 4
@@ -135,9 +135,15 @@ if __name__ == "__main__":
                                                           'bce_dice_loss': LossesMetrics.bce_dice_loss,
                                                           'dice_loss': LossesMetrics.dice_loss})
 
+    model.save_weights(os.path.join(logdir, "best_model_weights.hdf5"))
+
+    new_model = XceptionUNet(input_shape=(input_size, input_size, 3), optimizer=None)
+    new_model = new_model.get_model()
+    new_model.load_weights(os.path.join(logdir, "best_model_weights.hdf5"))
+
     predictor = Prediction(test_dataset=test_dataset,
                            test_filenames=dataset.x_test_filenames,
-                           model=model,
+                           model=new_model,
                            logdir=logdir,
                            model_path=model_path)
 

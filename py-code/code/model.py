@@ -280,9 +280,9 @@ class XceptionUNet:
         b1 = self.conv_bn_relu(x=spatial_pyramid_input, filters=filters, kernel_size=[3, 3], dilation_rate=3)
         b2 = self.conv_bn_relu(x=spatial_pyramid_input, filters=filters, kernel_size=[3, 3], dilation_rate=5)
 
-        b3 = layers.AveragePooling2D(pool_size=[4, 4], padding='valid')(spatial_pyramid_input)
+        b3 = layers.AveragePooling2D(pool_size=[3, 3], padding='valid')(spatial_pyramid_input)
         b3 = self.conv_bn_relu(x=b3, filters=filters, kernel_size=[1, 1], dilation_rate=1)
-        b3 = layers.UpSampling2D(size=[4, 4], interpolation='bilinear')(b3)
+        b3 = layers.UpSampling2D(size=[3, 3], interpolation='bilinear')(b3)
 
         spatial_pyramid_output = layers.concatenate([b0, b1, b2, b3])
         spatial_pyramid_output = self.conv_bn_relu(x=spatial_pyramid_output, filters=filters*2, kernel_size=[1, 1], dilation_rate=1)

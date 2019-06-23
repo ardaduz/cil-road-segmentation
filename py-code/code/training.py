@@ -40,7 +40,7 @@ def create_callbacks():
         save_weights_only=False)
 
     early_stopping_callback = tf.keras.callbacks.EarlyStopping(monitor='val_dice_loss',
-                                                               patience=20,
+                                                               patience=30,
                                                                verbose=1,
                                                                restore_best_weights=True)
 
@@ -140,7 +140,7 @@ if __name__ == "__main__":
     print(model.summary())
     model.fit(x=train_dataset,
               steps_per_epoch=5 * int(np.ceil(dataset.num_train_examples / float(batch_size))),
-              epochs=15,
+              epochs=25,
               validation_data=validation_dataset,
               validation_steps=int(np.ceil(dataset.num_val_examples / float(batch_size))),
               callbacks=callbacks)
@@ -154,7 +154,7 @@ if __name__ == "__main__":
     print(model.summary())
     model.fit(x=train_dataset,
               steps_per_epoch=5 * int(np.ceil(dataset.num_train_examples / float(batch_size))),
-              epochs=200,
+              epochs=300,
               validation_data=validation_dataset,
               validation_steps=int(np.ceil(dataset.num_val_examples / float(batch_size))),
               callbacks=callbacks)
