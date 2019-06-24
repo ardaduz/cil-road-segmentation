@@ -99,7 +99,7 @@ class Prediction:
 
 if __name__ == "__main__":
     ### SET THIS !!! ###
-    logdir = "/home/ardaduz/ETH/CIL/project/cil-road-segmentation/py-code/runs/20190623-053603"
+    logdir = "/home/ardaduz/ETH/CIL/project/cil-road-segmentation/py-code/runs/20190624-032909"
 
     img_dir = '../../competition-data/training/images'
     label_dir = '../../competition-data/training/groundtruth'
@@ -107,13 +107,13 @@ if __name__ == "__main__":
 
     validation_split_ratio = 0.2
 
-    random_sized_crops_min = 384  # randomly crops random sized patch, this is resized to 304 later (adds scale augmentation, only training!)
+    random_sized_crops_min = 608  # randomly crops random sized patch, this is resized to 304 later (adds scale augmentation, only training!)
     augment_color = True  # applies slight random hue, contrast, brightness change only on training data
 
-    input_size = 576
+    input_size = 384
 
     learning_rate = 1e-3
-    batch_size = 4
+    batch_size = 8
     epochs = 100
 
     dataset = Dataset(DEBUG_MODE=False,
@@ -135,15 +135,15 @@ if __name__ == "__main__":
                                                           'bce_dice_loss': LossesMetrics.bce_dice_loss,
                                                           'dice_loss': LossesMetrics.dice_loss})
 
-    model.save_weights(os.path.join(logdir, "best_model_weights.hdf5"))
-
-    new_model = XceptionUNet(input_shape=(input_size, input_size, 3), optimizer=None)
-    new_model = new_model.get_model()
-    new_model.load_weights(os.path.join(logdir, "best_model_weights.hdf5"))
+    # model.save_weights(os.path.join(logdir, "best_model_weights.hdf5"))
+    #
+    # new_model = MobilenetV2SpatialPyramid(input_shape=(input_size, input_size, 3), optimizer=None)
+    # new_model = new_model.get_model()
+    # new_model.load_weights(os.path.join(logdir, "best_model_weights.hdf5"))
 
     predictor = Prediction(test_dataset=test_dataset,
                            test_filenames=dataset.x_test_filenames,
-                           model=new_model,
+                           model=model,
                            logdir=logdir,
                            model_path=model_path)
 

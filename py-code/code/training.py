@@ -33,13 +33,13 @@ def create_callbacks():
 
     model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
         filepath=os.path.join(logdir, 'model_epoch{epoch:03d}_rmse{val_root_mean_squared_error:.4f}.hdf5'),
-        monitor="val_dice_loss",
+        monitor="val_loss",
         verbose=1,
         save_best_only=True,
         period=1,
         save_weights_only=False)
 
-    early_stopping_callback = tf.keras.callbacks.EarlyStopping(monitor='val_dice_loss',
+    early_stopping_callback = tf.keras.callbacks.EarlyStopping(monitor='val_loss',
                                                                patience=30,
                                                                verbose=1,
                                                                restore_best_weights=True)
@@ -78,21 +78,20 @@ if __name__ == "__main__":
     zippedfiles.close()
 
     ### CONFIG ###
-    DEBUG_MODE = False
-
+    DEBUG_MODE = True
     img_dir = '../../competition-data/training/images'
     label_dir = '../../competition-data/training/groundtruth'
     test_dir = '../../competition-data/test'
 
     validation_split_ratio = 0.2
 
-    random_sized_crops_min = 384  # randomly crops random sized patch, this is resized to 304 later (adds scale augmentation, only training!)
+    random_sized_crops_min = 336  # randomly crops random sized patch, this is resized later (adds scale augmentation, only training!)
     augment_color = True  # applies slight random hue, contrast, brightness change only on training data
 
-    input_size = 384
+    input_size = 256
 
     learning_rate = 1e-3
-    batch_size = 4
+    batch_size = 8
     epochs = 100
 
     ### START ###
@@ -123,7 +122,7 @@ if __name__ == "__main__":
                 img = batch_of_imgs[i]
 
                 plt.subplot(batch_size, 2, i * 2 + 1)
-                plt.imshow(img)
+                plt.imshow(img.astype(np.uint8))
 
                 plt.subplot(batch_size, 2, i * 2 + 2)
                 plt.imshow(label[i, :, :, 0], cmap='gray')
@@ -132,15 +131,15 @@ if __name__ == "__main__":
     callbacks = create_callbacks()
 
     optimizer = tf.keras.optimizers.Adam(lr=1e-3)
-    base_model = XceptionUNet(input_shape=(input_size, input_size, 3), optimizer=optimizer)
+    base_model = MobilenetV2SpatialPyramid(input_shape=(input_size, input_size, 3), optimizer=optimizer)
     model = base_model.get_model()
     model.compile(optimizer=optimizer,
-                  loss=LossesMetrics.bce_dice_loss,
+                  loss=LossesMetrics.dice_loss,
                   metrics=[LossesMetrics.dice_loss, LossesMetrics.root_mean_squared_error])
     print(model.summary())
     model.fit(x=train_dataset,
               steps_per_epoch=5 * int(np.ceil(dataset.num_train_examples / float(batch_size))),
-              epochs=25,
+              epochs=20,
               validation_data=validation_dataset,
               validation_steps=int(np.ceil(dataset.num_val_examples / float(batch_size))),
               callbacks=callbacks)
@@ -149,7 +148,7 @@ if __name__ == "__main__":
     for layer in model.layers:
         layer.trainable = True
     model.compile(optimizer=optimizer,
-                  loss=LossesMetrics.bce_dice_loss,
+                  loss=LossesMetrics.dice_loss,
                   metrics=[LossesMetrics.dice_loss, LossesMetrics.root_mean_squared_error])
     print(model.summary())
     model.fit(x=train_dataset,
