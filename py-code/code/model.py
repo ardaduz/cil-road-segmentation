@@ -76,22 +76,13 @@ class LossesMetrics:
         return loss
 
     @staticmethod
-    def generalized_dice_loss(y_true, y_pred):
-        mean = 0.200468375
+    def tversky_loss(y_true, y_pred):
+        beta = 0.2
+        numerator = tf.reduce_sum(y_true * y_pred)
+        denominator = y_true * y_pred + beta * (1 - y_true) * y_pred + (1 - beta) * y_true * (1 - y_pred)
 
-        w_1 = 1 / mean ** 2
-        w_0 = 1 / (1 - mean) ** 2
-        y_true_f_1 = tf.keras.backend.flatten(y_true)
-        y_pred_f_1 = tf.keras.backend.flatten(y_pred)
-        y_true_f_0 = tf.keras.backend.flatten(1 - y_true)
-        y_pred_f_0 = tf.keras.backend.flatten(1 - y_pred)
+        return numerator / (tf.reduce_sum(denominator) + tf.keras.backend.epsilon())
 
-        intersection_0 = tf.keras.backend.sum(y_true_f_0 * y_pred_f_0)
-        intersection_1 = tf.keras.backend.sum(y_true_f_1 * y_pred_f_1)
-
-        return 2 * (w_0 * intersection_0 + w_1 * intersection_1) / (
-                    (w_0 * (tf.keras.backend.sum(y_true_f_0) + tf.keras.backend.sum(y_pred_f_0))) +
-                    (w_1 * (tf.keras.backend.sum(y_true_f_1) + tf.keras.backend.sum(y_pred_f_1))))
 
 class BaselineModel:
     def __init__(self, input_shape, optimizer):
@@ -281,14 +272,14 @@ class EncoderMLPModel:
         return self.model
 
 
-class XceptionDeeplab:
+class XceptionSpatialPyramid:
     def __init__(self, input_shape, optimizer):
         self.input_shape = input_shape
         self.optimizer = optimizer
 
-        self.encoder_spatial_dropout_rate = 0.3
-        self.decoder_spatial_dropout_rate = 0.3
-        self.l2_regularization = 0.005
+        self.encoder_spatial_dropout_rate = 0.4
+        self.decoder_spatial_dropout_rate = 0.25
+        self.l2_regularization = 0.0
 
         self.model = None
         self.build_model()
@@ -304,10 +295,10 @@ class XceptionDeeplab:
         for layer in encoder_model.layers:
             layer.trainable = False
 
-        encoder1 = encoder_model.get_layer('block1_conv2_act').output
-        encoder2 = encoder_model.get_layer('block2_pool').output
-        encoder3 = encoder_model.get_layer('block3_pool').output
-        encoder4 = encoder_model.get_layer('block4_pool').output
+        encoder1 = encoder_model.get_layer('block2_sepconv2_bn').output
+        encoder2 = encoder_model.get_layer('block3_sepconv2_bn').output
+        encoder3 = encoder_model.get_layer('block4_sepconv2_bn').output
+        encoder4 = encoder_model.get_layer('block13_sepconv2_bn').output
         spatial_pyramid_input = encoder_model.output
 
         encoder1 = layers.SpatialDropout2D(rate=self.encoder_spatial_dropout_rate)(encoder1)
@@ -324,16 +315,15 @@ class XceptionDeeplab:
         x = layers.ReLU()(x)
         return x
 
-    def spatial_pyramid_block(self, spatial_pyramid_input):
+    def spatial_pyramid_block(self, spatial_pyramid_input, filters, dilation_rates):
 
-        filters = 128
-        b0 = self.conv_bn_relu(x=spatial_pyramid_input, filters=filters, kernel_size=[1, 1], dilation_rate=1)
-        b1 = self.conv_bn_relu(x=spatial_pyramid_input, filters=filters, kernel_size=[3, 3], dilation_rate=3)
-        b2 = self.conv_bn_relu(x=spatial_pyramid_input, filters=filters, kernel_size=[3, 3], dilation_rate=5)
+        b0 = self.conv_bn_relu(x=spatial_pyramid_input, filters=filters, kernel_size=[1, 1], dilation_rate=dilation_rates[0])
+        b1 = self.conv_bn_relu(x=spatial_pyramid_input, filters=filters, kernel_size=[3, 3], dilation_rate=dilation_rates[1])
+        b2 = self.conv_bn_relu(x=spatial_pyramid_input, filters=filters, kernel_size=[3, 3], dilation_rate=dilation_rates[2])
 
-        b3 = layers.AveragePooling2D(pool_size=[3, 3], padding='valid')(spatial_pyramid_input)
+        b3 = layers.AveragePooling2D(pool_size=[4, 4], padding='valid')(spatial_pyramid_input)
         b3 = self.conv_bn_relu(x=b3, filters=filters, kernel_size=[1, 1], dilation_rate=1)
-        b3 = layers.UpSampling2D(size=[3, 3], interpolation='bilinear')(b3)
+        b3 = layers.UpSampling2D(size=[4, 4], interpolation='bilinear')(b3)
 
         spatial_pyramid_output = layers.concatenate([b0, b1, b2, b3])
         spatial_pyramid_output = self.conv_bn_relu(x=spatial_pyramid_output, filters=filters * 2, kernel_size=[1, 1], dilation_rate=1)
@@ -361,7 +351,7 @@ class XceptionDeeplab:
         return decoder
 
     def upsampling_block(self, input_tensor, concat_tensor, num_filters, padding):
-        decoder = layers.UpSampling2D(size=[4, 4], interpolation='bilinear')(input_tensor)
+        decoder = layers.UpSampling2D(size=[2, 2], interpolation='bilinear')(input_tensor)
 
         _, concat_tensor_image_size, _, _ = concat_tensor.shape.as_list()
         _, decoder_image_size, _, _ = decoder.shape.as_list()
@@ -374,39 +364,37 @@ class XceptionDeeplab:
         decoder = layers.Conv2D(num_filters, (3, 3), padding=padding)(decoder)
         decoder = layers.BatchNormalization()(decoder)
         decoder = layers.Activation('relu')(decoder)
-        decoder = layers.Conv2D(num_filters, (3, 3), padding=padding)(decoder)
-        decoder = layers.BatchNormalization()(decoder)
-        decoder = layers.Activation('relu')(decoder)
         return decoder
 
     def build_model(self):
         inputs = layers.Input(shape=self.input_shape)
+        zero_padded_inputs = layers.ZeroPadding2D(padding=(3, 3))(inputs)
 
-        encoder1, encoder2, encoder3, encoder4, spatial_pyramid_input = self.build_pretrained_xception_model(inputs)
+        encoder1, encoder2, encoder3, encoder4, center = self.build_pretrained_xception_model(zero_padded_inputs)
 
-        spatial_pyramid_output = self.spatial_pyramid_block(spatial_pyramid_input=spatial_pyramid_input)
-        spatial_pyramid_output = layers.SpatialDropout2D(rate=self.decoder_spatial_dropout_rate)(spatial_pyramid_output)
+        encoder4_pyramid = self.spatial_pyramid_block(spatial_pyramid_input=encoder4, filters=128, dilation_rates=[1, 3, 5])
+        encoder4_pyramid = layers.SpatialDropout2D(rate=self.decoder_spatial_dropout_rate)(encoder4_pyramid)
+
+        center_pyramid = self.spatial_pyramid_block(spatial_pyramid_input=center, filters=192, dilation_rates=[1, 2, 3])
+        center_pyramid = layers.SpatialDropout2D(rate=self.decoder_spatial_dropout_rate)(center_pyramid)
 
         # without deconv
-        encoder3 = self.conv_bn_relu(x=encoder3, filters=128, kernel_size=[1, 1], dilation_rate=1)
-        decoder1 = self.upsampling_block(input_tensor=spatial_pyramid_output, concat_tensor=encoder3, num_filters=128, padding='same')
-        decoder1 = layers.SpatialDropout2D(rate=self.decoder_spatial_dropout_rate)(decoder1)
+        decoder4 = self.upsampling_block(input_tensor=center_pyramid, concat_tensor=encoder4_pyramid, num_filters=256, padding='same')
+        decoder4 = layers.SpatialDropout2D(rate=self.decoder_spatial_dropout_rate)(decoder4)
 
-        encoder1 = self.conv_bn_relu(x=encoder1, filters=64, kernel_size=[1, 1], dilation_rate=1)
-        decoder2 = self.upsampling_block(input_tensor=decoder1, concat_tensor=encoder1, num_filters=64, padding='same')
+        encoder3 = self.conv_bn_relu(x=encoder3, filters=96, kernel_size=[1, 1], dilation_rate=1)
+        decoder3 = self.upsampling_block(input_tensor=decoder4, concat_tensor=encoder3, num_filters=192, padding='same')
+        decoder3 = layers.SpatialDropout2D(rate=self.decoder_spatial_dropout_rate)(decoder3)
+
+        encoder2 = self.conv_bn_relu(x=encoder2, filters=64, kernel_size=[1, 1], dilation_rate=1)
+        decoder2 = self.upsampling_block(input_tensor=decoder3, concat_tensor=encoder2, num_filters=128, padding='same')
         decoder2 = layers.SpatialDropout2D(rate=self.decoder_spatial_dropout_rate)(decoder2)
 
-        # # with deconv
-        # decoder1 = self.decoder_block(input_tensor=spatial_pyramid_output, concat_tensor=encoder4, num_filters=728, padding='same')
-        # decoder1 = layers.SpatialDropout2D(rate=self.decoder_spatial_dropout_rate)(decoder1)
-        # decoder2 = self.decoder_block(input_tensor=decoder1, concat_tensor=encoder3, num_filters=256, padding='same')
-        # decoder2 = layers.SpatialDropout2D(rate=self.decoder_spatial_dropout_rate)(decoder2)
-        # decoder3 = self.decoder_block(input_tensor=decoder2, concat_tensor=encoder2, num_filters=128, padding='valid')
-        # decoder3 = layers.SpatialDropout2D(rate=self.decoder_spatial_dropout_rate)(decoder3)
-        # decoder4 = self.decoder_block(input_tensor=decoder3, concat_tensor=encoder1, num_filters=64, padding='same')
-        # decoder4 = layers.SpatialDropout2D(rate=self.decoder_spatial_dropout_rate)(decoder4)
+        encoder1 = self.conv_bn_relu(x=encoder1, filters=32, kernel_size=[1, 1], dilation_rate=1)
+        decoder1 = self.upsampling_block(input_tensor=decoder2, concat_tensor=encoder1, num_filters=64, padding='same')
+        decoder1 = layers.SpatialDropout2D(rate=self.decoder_spatial_dropout_rate)(decoder1)
 
-        outputs = layers.Conv2DTranspose(32, (2, 2), strides=(2, 2), padding='valid')(decoder2)
+        outputs = layers.Conv2DTranspose(64, (2, 2), strides=(2, 2), padding='valid')(decoder1)
         outputs = layers.BatchNormalization()(outputs)
         outputs = layers.Activation('relu')(outputs)
         outputs = layers.Conv2D(32, (3, 3), padding='same')(outputs)
@@ -420,30 +408,188 @@ class XceptionDeeplab:
 
         model = models.Model(inputs=[inputs], outputs=[outputs])
 
-        for layer in model.layers:
-            if isinstance(layer, tf.keras.layers.Conv2D) or isinstance(layer, tf.keras.layers.Dense):
-                layer.add_loss(tf.keras.regularizers.l2(self.l2_regularization)(layer.kernel))
-            elif isinstance(layer, tf.keras.layers.SeparableConv2D):
-                layer.add_loss(tf.keras.regularizers.l2(self.l2_regularization)(layer.pointwise_kernel))
-                layer.add_loss(tf.keras.regularizers.l2(self.l2_regularization)(layer.depthwise_kernel))
+        final_model = model
+        if self.l2_regularization > 0.0:
+            for layer in model.layers:
+                if hasattr(layer, 'kernel_regularizer'):
+                    layer.kernel_regularizer = tf.keras.regularizers.l2(self.l2_regularization)
+                if hasattr(layer, 'bias_regularizer') and layer.use_bias:
+                    layer.bias_regularizer = tf.keras.regularizers.l2(self.l2_regularization)
 
-            if hasattr(layer, 'bias_regularizer') and layer.use_bias:
-                layer.add_loss(tf.keras.regularizers.l2(self.l2_regularization)(layer.bias))
+            model.save("temp_model.hdf5")
+            print("Temporary model with regularization is saved")
+            final_model = tf.keras.models.load_model("temp_model.hdf5")
+            print("Temporary model with regularization is loaded")
 
-        self.model = model
+        self.model = final_model
 
     def get_model(self):
 
         return self.model
 
 
+# class MobilenetV2SpatialPyramid:
+#     def __init__(self, input_shape, optimizer):
+#         self.input_shape = input_shape
+#         self.optimizer = optimizer
+#
+#         self.encoder_spatial_dropout_rate = 0.25
+#         self.decoder_spatial_dropout_rate = 0.25
+#         self.l2_regularization = 0.0
+#
+#         self.model = None
+#         self.build_model()
+#
+#     def build_pretrained_model(self, input_layer, use_residual):
+#
+#         encoder_model = tf.keras.applications.MobileNetV2(input_shape=None,
+#                                                           alpha=1.4,
+#                                                           include_top=False,
+#                                                           weights='imagenet',
+#                                                           input_tensor=input_layer)
+#
+#         for layer in encoder_model.layers:
+#             layer.trainable = False
+#
+#         if use_residual:
+#             encoder1 = encoder_model.get_layer('expanded_conv_add').output
+#             encoder2 = encoder_model.get_layer('block_2_add').output
+#             encoder3 = encoder_model.get_layer('block_5_add').output
+#             encoder4 = encoder_model.get_layer('block_12_add').output
+#             center = encoder_model.get_layer('out_relu').output
+#         else:
+#             encoder1 = encoder_model.get_layer('expanded_conv_depthwise_relu').output
+#             encoder2 = encoder_model.get_layer('block_2_depthwise_relu').output
+#             encoder3 = encoder_model.get_layer('block_5_depthwise_relu').output
+#             encoder4 = encoder_model.get_layer('block_12_depthwise_relu').output
+#             center = encoder_model.get_layer('out_relu').output
+#
+#         encoder1 = layers.SpatialDropout2D(rate=self.encoder_spatial_dropout_rate)(encoder1)
+#         encoder2 = layers.SpatialDropout2D(rate=self.encoder_spatial_dropout_rate)(encoder2)
+#         encoder3 = layers.SpatialDropout2D(rate=self.encoder_spatial_dropout_rate)(encoder3)
+#         encoder4 = layers.SpatialDropout2D(rate=self.encoder_spatial_dropout_rate)(encoder4)
+#         center = layers.SpatialDropout2D(rate=self.encoder_spatial_dropout_rate)(center)
+#
+#         return encoder1, encoder2, encoder3, encoder4, center
+#
+#     def conv_bn_relu(self, x, filters, kernel_size, dilation_rate):
+#         x = layers.Conv2D(filters=filters, kernel_size=kernel_size, dilation_rate=dilation_rate, padding='same')(x)
+#         x = layers.BatchNormalization()(x)
+#         x = layers.ReLU()(x)
+#         return x
+#
+#     def spatial_pyramid_block(self, spatial_pyramid_input, filters, dilation_rates):
+#
+#         b0 = self.conv_bn_relu(x=spatial_pyramid_input, filters=filters, kernel_size=[1, 1], dilation_rate=dilation_rates[0])
+#         b1 = self.conv_bn_relu(x=spatial_pyramid_input, filters=filters, kernel_size=[3, 3], dilation_rate=dilation_rates[1])
+#         b2 = self.conv_bn_relu(x=spatial_pyramid_input, filters=filters, kernel_size=[3, 3], dilation_rate=dilation_rates[2])
+#
+#         b3 = layers.AveragePooling2D(pool_size=[4, 4], padding='valid')(spatial_pyramid_input)
+#         b3 = self.conv_bn_relu(x=b3, filters=filters, kernel_size=[1, 1], dilation_rate=1)
+#         b3 = layers.UpSampling2D(size=[4, 4], interpolation='bilinear')(b3)
+#
+#         spatial_pyramid_output = layers.concatenate([b0, b1, b2, b3])
+#         spatial_pyramid_output = self.conv_bn_relu(x=spatial_pyramid_output, filters=filters * 2, kernel_size=[1, 1], dilation_rate=1)
+#         return spatial_pyramid_output
+#
+#     def decoder_block(self, input_tensor, concat_tensor, num_filters, padding):
+#         decoder = layers.Conv2DTranspose(num_filters, (2, 2), strides=(2, 2), padding='valid')(input_tensor)
+#         decoder = layers.BatchNormalization()(decoder)
+#         decoder = layers.Activation('relu')(decoder)
+#
+#         decoder = layers.concatenate([concat_tensor, decoder], axis=-1)
+#         decoder = layers.Conv2D(num_filters, (3, 3), padding=padding)(decoder)
+#         decoder = layers.BatchNormalization()(decoder)
+#         decoder = layers.Activation('relu')(decoder)
+#         decoder = layers.Conv2D(num_filters, (3, 3), padding=padding)(decoder)
+#         decoder = layers.BatchNormalization()(decoder)
+#         decoder = layers.Activation('relu')(decoder)
+#         return decoder
+#
+#     def upsampling_block(self, input_tensor, concat_tensor, num_filters, padding):
+#         decoder = layers.UpSampling2D(size=[2, 2], interpolation='bilinear')(input_tensor)
+#         decoder = layers.concatenate([concat_tensor, decoder], axis=-1)
+#         decoder = layers.Conv2D(num_filters, (3, 3), padding=padding)(decoder)
+#         decoder = layers.BatchNormalization()(decoder)
+#         decoder = layers.Activation('relu')(decoder)
+#         return decoder
+#
+#     def build_model(self):
+#         # # with deconv
+#         # decoder1 = self.decoder_block(input_tensor=spatial_pyramid_output, concat_tensor=encoder4, num_filters=728, padding='same')
+#         # decoder1 = layers.SpatialDropout2D(rate=self.decoder_spatial_dropout_rate)(decoder1)
+#         # decoder2 = self.decoder_block(input_tensor=decoder1, concat_tensor=encoder3, num_filters=256, padding='same')
+#         # decoder2 = layers.SpatialDropout2D(rate=self.decoder_spatial_dropout_rate)(decoder2)
+#         # decoder3 = self.decoder_block(input_tensor=decoder2, concat_tensor=encoder2, num_filters=128, padding='valid')
+#         # decoder3 = layers.SpatialDropout2D(rate=self.decoder_spatial_dropout_rate)(decoder3)
+#         # decoder4 = self.decoder_block(input_tensor=decoder3, concat_tensor=encoder1, num_filters=64, padding='same')
+#         # decoder4 = layers.SpatialDropout2D(rate=self.decoder_spatial_dropout_rate)(decoder4)
+#
+#         inputs = layers.Input(shape=self.input_shape)
+#
+#         encoder1, encoder2, encoder3, encoder4, center = self.build_pretrained_model(inputs, use_residual=False)
+#
+#         encoder4_pyramid = self.spatial_pyramid_block(spatial_pyramid_input=encoder4, filters=128, dilation_rates=[1, 3, 5])
+#         encoder4_pyramid = layers.SpatialDropout2D(rate=self.decoder_spatial_dropout_rate)(encoder4_pyramid)
+#
+#         center_pyramid = self.spatial_pyramid_block(spatial_pyramid_input=center, filters=192, dilation_rates=[1, 2, 3])
+#         center_pyramid = layers.SpatialDropout2D(rate=self.decoder_spatial_dropout_rate)(center_pyramid)
+#
+#         # without deconv
+#         decoder4 = self.upsampling_block(input_tensor=center_pyramid, concat_tensor=encoder4_pyramid, num_filters=256, padding='same')
+#         decoder4 = layers.SpatialDropout2D(rate=self.decoder_spatial_dropout_rate)(decoder4)
+#
+#         encoder3 = self.conv_bn_relu(x=encoder3, filters=96, kernel_size=[1, 1], dilation_rate=1)
+#         decoder3 = self.upsampling_block(input_tensor=decoder4, concat_tensor=encoder3, num_filters=192, padding='same')
+#         decoder3 = layers.SpatialDropout2D(rate=self.decoder_spatial_dropout_rate)(decoder3)
+#
+#         encoder2 = self.conv_bn_relu(x=encoder2, filters=64, kernel_size=[1, 1], dilation_rate=1)
+#         decoder2 = self.upsampling_block(input_tensor=decoder3, concat_tensor=encoder2, num_filters=128, padding='same')
+#         decoder2 = layers.SpatialDropout2D(rate=self.decoder_spatial_dropout_rate)(decoder2)
+#
+#         encoder1 = self.conv_bn_relu(x=encoder1, filters=32, kernel_size=[1, 1], dilation_rate=1)
+#         decoder1 = self.upsampling_block(input_tensor=decoder2, concat_tensor=encoder1, num_filters=64, padding='same')
+#         decoder1 = layers.SpatialDropout2D(rate=self.decoder_spatial_dropout_rate)(decoder1)
+#
+#         outputs = layers.Conv2DTranspose(64, (2, 2), strides=(2, 2), padding='valid')(decoder1)
+#         outputs = layers.BatchNormalization()(outputs)
+#         outputs = layers.Activation('relu')(outputs)
+#         outputs = layers.Conv2D(32, (3, 3), padding='same')(outputs)
+#         outputs = layers.BatchNormalization()(outputs)
+#         outputs = layers.Activation('relu')(outputs)
+#         outputs = layers.Conv2D(32, (3, 3), padding='same')(outputs)
+#         outputs = layers.BatchNormalization()(outputs)
+#         outputs = layers.Activation('relu')(outputs)
+#
+#         outputs = layers.Conv2D(1, (1, 1), activation='sigmoid')(outputs)
+#
+#         model = models.Model(inputs=[inputs], outputs=[outputs])
+#
+#         final_model = model
+#         if self.l2_regularization > 0.0:
+#             for layer in model.layers:
+#                 if hasattr(layer, 'kernel_regularizer'):
+#                     layer.kernel_regularizer = tf.keras.regularizers.l2(self.l2_regularization)
+#                 if hasattr(layer, 'bias_regularizer') and layer.use_bias:
+#                     layer.bias_regularizer = tf.keras.regularizers.l2(self.l2_regularization)
+#
+#             model.save("temp_model.hdf5")
+#             print("Temporary model with regularization is saved")
+#             final_model = tf.keras.models.load_model("temp_model.hdf5")
+#             print("Temporary model with regularization is loaded")
+#
+#         self.model = final_model
+#
+#     def get_model(self):
+#         return self.model
+
 class MobilenetV2SpatialPyramid:
     def __init__(self, input_shape, optimizer):
         self.input_shape = input_shape
         self.optimizer = optimizer
 
-        self.encoder_spatial_dropout_rate = 0.5
-        self.decoder_spatial_dropout_rate = 0.5
+        self.encoder_spatial_dropout_rate = 0.25
+        self.decoder_spatial_dropout_rate = 0.25
         self.l2_regularization = 0.0
 
         self.model = None

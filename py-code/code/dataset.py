@@ -83,13 +83,12 @@ class Dataset:
         return img, label_img
 
     def _internal_get_dataset(self, x, y, preprocessing_function, shuffle, repeat):
-        num_files = len(x)
         dataset = tf.data.Dataset.from_tensor_slices((x, y))
         dataset = dataset.map(self._process_pathnames, num_parallel_calls=self.num_parallel_calls)
         dataset = dataset.map(preprocessing_function, num_parallel_calls=self.num_parallel_calls)
 
         if shuffle:
-            dataset = dataset.shuffle(num_files, seed=111, reshuffle_each_iteration=True)
+            dataset = dataset.shuffle(self.batch_size*50, seed=111, reshuffle_each_iteration=True)
 
         if repeat:
             dataset = dataset.repeat()
