@@ -8,18 +8,40 @@ from tensorflow.python.keras import models, layers
 import numpy as np
 import matplotlib.image as mpimg
 import pandas as pd
+import cv2
 
 from dataset import Dataset
 from model import *
 
+def get_three_flips(images):
+    result_hor = []
+    result_ver = []
+    result_both = []
+    for i in range(np.size(images, axis=0)):
+        image = images[i, :, :, :]
+        hor = cv2.flip(image, 0)
+        ver = cv2.flip(image, 1)
+        both = cv2.flip(image, -1)
+
+        result_hor.append(hor)
+        result_ver.append(ver)
+        result_both.append(both)
+
+    result_hor = np.asarray(result_hor)
+    result_ver = np.asarray(result_ver)
+    result_both = np.asarray(result_both)
+
+    return result_hor, result_ver, result_both
+
 
 class Prediction:
-    def __init__(self, test_dataset, test_filenames, model, logdir, model_path):
+    def __init__(self, test_dataset, test_filenames, models, logdir, model_path, submission_name):
         self.test_dataset = test_dataset
         self.test_filenames = test_filenames
-        self.model = model
+        self.models = models
         self.logdir = logdir
         self.model_path = model_path
+        self.submission_name = submission_name
 
         ### Mask to submission
         self.foreground_threshold = 0.25  # percentage of pixels > 1 required to assign a foreground label to a patch
@@ -36,24 +58,36 @@ class Prediction:
         try:
             while True:
                 batch_of_imgs, label = sess.run(test_next_element)
-                predicted_labels = self.model.predict(batch_of_imgs)
+                sum_predicted_labels = np.expand_dims(np.zeros((batch_of_imgs.shape[0], batch_of_imgs.shape[1], batch_of_imgs.shape[2])))
 
+                original_batch_of_imgs = np.copy(batch_of_imgs)
+                hor_flipped, ver_flipped, both_flipped = get_three_flips(original_batch_of_imgs)
+
+                for current_model in self.models:
+                    current_predicted_labels = current_model.predict(batch_of_imgs)
+                    sum_predicted_labels += current_predicted_labels
+
+                predicted_labels = sum_predicted_labels / (len(self.models)*8)
                 # rescale images from [0, 1] to [0, 255]
                 predicted_labels = predicted_labels * 255.0
+                predicted_labels = np.maximum(predicted_labels, 0.0)
+                predicted_labels = np.minimum(predicted_labels, 255.0)
 
                 for i in range(len(predicted_labels)):
-                    pred = Image.fromarray(predicted_labels[i, :, :, 0], 'F').resize((608, 608)).convert('L')
                     test_filename = self.test_filenames[count]
                     index = test_filename.rfind("/") + 1
                     test_filename = test_filename[index:]
-                    imageio.imwrite(os.path.join(self.prediction_dir, test_filename), pred)
+                    save_filename = os.path.join(self.prediction_dir, test_filename)
+                    pred = predicted_labels[i, :, :, 0].astype(np.uint8)
+                    pred = cv2.resize(pred, (608, 608), interpolation=cv2.INTER_NEAREST)
+                    cv2.imwrite(save_filename, pred, [cv2.IMWRITE_PNG_COMPRESSION, 0])
                     count += 1
 
         except tf.errors.OutOfRangeError:
             pass
 
     def submit(self):
-        submission_filename = model_path.replace("weights", "submission", 1).replace(".hdf5", ".csv", 1)
+        submission_filename = self.submission_name
         image_filenames = [os.path.join(self.prediction_dir, filename) for filename in os.listdir(self.prediction_dir)]
         self.masks_to_submission(submission_filename, *image_filenames)
 
@@ -99,7 +133,9 @@ class Prediction:
 
 if __name__ == "__main__":
     ### SET THIS !!! ###
-    logdir = "." #"/home/ardaduz/ETH/CIL/project/cil-road-segmentation/py-code/runs/20190624-182820"
+    logdir = "." #/home/ardaduz/ETH/CIL/project/cil-road-segmentation/py-code/runs/20190625-014252"
+
+    submission_filename = "mobilenet_xception_ensemble.csv"
 
     img_dir = '../../competition-data/training/images'
     label_dir = '../../competition-data/training/groundtruth'
@@ -129,23 +165,34 @@ if __name__ == "__main__":
 
     train_dataset, validation_dataset, test_dataset = dataset.get_datasets()
 
-    cp_dir = os.path.join(logdir, 'model*')
-    model_path = sorted(glob.glob(cp_dir), reverse=True)[0]
+    # MODEL 1
+    model_path = "model_epoch199_rmse0.0397.hdf5"
     model = models.load_model(model_path, custom_objects={'root_mean_squared_error': LossesMetrics.root_mean_squared_error,
                                                           'bce_dice_loss': LossesMetrics.bce_dice_loss,
                                                           'dice_loss': LossesMetrics.dice_loss})
 
     model.save_weights(os.path.join(logdir, "best_model_weights.hdf5"))
+    xception_model = XceptionSpatialPyramid(input_shape=(input_size, input_size, 3), optimizer=None)
+    xception_model = xception_model.get_model()
+    xception_model.load_weights(os.path.join(logdir, "best_model_weights.hdf5"))
 
-    new_model = XceptionSpatialPyramid(input_shape=(input_size, input_size, 3), optimizer=None)
-    new_model = new_model.get_model()
-    new_model.load_weights(os.path.join(logdir, "best_model_weights.hdf5"))
+    # MODEL 2
+    model_path = "model_epoch172_rmse0.0456.hdf5"
+    model = models.load_model(model_path, custom_objects={'root_mean_squared_error': LossesMetrics.root_mean_squared_error,
+                                                          'bce_dice_loss': LossesMetrics.bce_dice_loss,
+                                                          'dice_loss': LossesMetrics.dice_loss})
+
+    model.save_weights(os.path.join(logdir, "best_model_weights.hdf5"))
+    mobilenet_model = MobilenetV2SpatialPyramid(input_shape=(input_size, input_size, 3), optimizer=None)
+    mobilenet_model = mobilenet_model.get_model()
+    mobilenet_model.load_weights(os.path.join(logdir, "best_model_weights.hdf5"))
 
     predictor = Prediction(test_dataset=test_dataset,
                            test_filenames=dataset.x_test_filenames,
-                           model=new_model,
+                           models=[xception_model, mobilenet_model],
                            logdir=logdir,
-                           model_path=model_path)
+                           model_path=model_path,
+                           submission_name=submission_filename)
 
     predictor.predict()
     predictor.submit()
