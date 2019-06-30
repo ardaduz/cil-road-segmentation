@@ -158,23 +158,9 @@ if __name__ == "__main__":
 
     callbacks = create_callbacks()
 
-    optimizer = tf.keras.optimizers.Adam(lr=1e-2)
-    base_model = MobilenetV2SpatialPyramid(input_shape=(input_size, input_size, 3), optimizer=optimizer)
-    model = base_model.get_model()
-    model.compile(optimizer=optimizer,
-                  loss=LossesMetrics.dice_loss,
-                  metrics=[LossesMetrics.dice_loss, LossesMetrics.root_mean_squared_error])
-    print(model.summary())
-    model.fit(x=google_train_dataset,
-              steps_per_epoch=int(np.ceil(google_dataset.num_train_examples / float(batch_size))),
-              epochs=15,
-              validation_data=google_validation_dataset,
-              validation_steps=int(np.ceil(google_dataset.num_val_examples / float(batch_size))),
-              callbacks=callbacks)
-
     optimizer = tf.keras.optimizers.Adam(lr=1e-3)
-    for layer in model.layers:
-        layer.trainable = True
+    base_model = BaselineModel(input_shape=(input_size, input_size, 3), optimizer=optimizer)
+    model = base_model.get_model()
     model.compile(optimizer=optimizer,
                   loss=LossesMetrics.dice_loss,
                   metrics=[LossesMetrics.dice_loss, LossesMetrics.root_mean_squared_error])

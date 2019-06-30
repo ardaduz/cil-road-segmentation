@@ -102,6 +102,7 @@ class Preprocessing:
                 random_sized_crops_min,
                 input_size,
                 change_color):
+        # if mode is test img and label parameters are batches of images, otherwise they contain single image
 
         is_training = mode == 'training'
 
@@ -121,8 +122,7 @@ class Preprocessing:
 
                 img = tf.minimum(img, 255.0)
                 img = tf.maximum(img, 0.0)
-
-        else:  # test or validation, don't do anything, just resize to the desired input size
+        else:  # validation, don't do anything, just resize to the desired input size
             img = tf.image.resize(img, size=[input_size, input_size])
             label = tf.image.resize(label, size=[input_size, input_size])
 
@@ -134,3 +134,26 @@ class Preprocessing:
         label = tf.cond(tf.equal(label_max, label_min), lambda: label, lambda: (label - label_min) / (label_max - label_min))
 
         return img, label
+
+    @ staticmethod
+    def test_augment(img,
+                     label_img,
+                     input_size):
+
+        img = tf.image.resize(img, size=[input_size, input_size])
+        label_img = tf.image.resize(label_img, size=[input_size, input_size])
+
+        tmp = [img, tf.image.flip_left_right(img)]
+        img = tf.concat(tmp, axis=0)
+        tmp = [label_img, tf.image.flip_left_right(label_img)]
+        label_img = tf.concat(tmp, axis=0)
+
+        # Concatenate all four 90° rotations
+        tmp = [tf.image.rot90(img, i) for i in range(4)]
+        img = tf.concat(tmp, axis=0)
+        tmp = [tf.image.rot90(label_img, i) for i in range(4)]
+        label_img = tf.concat(tmp, axis=0)
+
+        img = tf.keras.applications.mobilenet_v2.preprocess_input(img)
+
+        return img, label_img
