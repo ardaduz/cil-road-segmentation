@@ -1,32 +1,61 @@
 # CIL-Road Segmentation Project
 Computational Intelligence Lab (Road Segmentation Project) - ETH Zürich Spring 2019
 
-Group Members:
+### Group Members
 * Marilou Beyeler
 * Arda Duzceker
 * Jonas Hein
 * Juan Lopez Fernandez
 
-## Data Collection and Preprocessing
+### Project Report
+The final report can be found [TODO](TODO)
 
-### Extra Data Collection
-Using data-processing/collect_data.py script and data-processing/input_cities.csv parameters, 
-extra data from 5 large US (1000 each) cities has been collected until now. 
+# Setup
+
+### Dependencies
+TODO
+
+* Python 3.5.3+
+* Tensorflow 1.1.0
+* Numpy
+* scikit-learn
+* scikit-image
+* Pillow
+* Matplotlib
+* Tqdm
+* scipy
+
+### Folder structure
+TODO describe the folder structure and where to put the data, additional data, model-weight files, ...
+
+## Extra Data Collection
+Using additional-data/collect_data.py script and additional-data/input_cities.csv parameters, 
+extra data (1000 image pairs each) from 5 large US cities has been collected. 
 The Google Drive link to the data:
-https://drive.google.com/file/d/1RX-Ctq6ULIj9nihJEEUX35sQKGJrZvXG/view?usp=sharing
+https://drive.google.com/drive/folders/1aXjASwNVKF6bc4CWXcC_TU6Q2BfUr5Lp
 
-## Models
+# Models
 
 ### baseline-cnn
-Code built on https://github.com/tensorflow/models/blob/master/samples/outreach/blogs/segmentation_blogpost/image_segmentation.ipynb .
-Changes made in the data preprocessing and postprocessing steps:
-- Adjusted the input pipeline to work with our data
-- Added random 90-degree rotations to the preprocessing pipeline
-- Added root mean squared error as a metric for selecting the best model/checkpoint
-- Added early stopping
-- Resizing input images and predictions to match the required shape
-- Added the provided code to mask our predictions for submission
-- Probably some minor things that I forgot
+Code based on https://github.com/tensorflow/models/blob/master/samples/outreach/blogs/segmentation_blogpost/image_segmentation.ipynb .
+To reproduce the baseline, simply run the jupyter notebook located at baseline-cnn/baseline-cnn.ipynb
 
 ### baseline-graph-cut
 TODO
+
+## Ensemble
+TODO
+first train the three ensemble models, then do this and that to get the final predictions.
+
+### Mobilenetv2 based model with single spatial pyramid
+TODO
+
+### Xception based model with two spatial pyramids
+TODO
+
+### Xception based model with many spatial pyramids
+TODO
+
+# Results
+TODO - do we add the results somewhere?
+
