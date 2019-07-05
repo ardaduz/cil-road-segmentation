@@ -12,7 +12,7 @@ from preprocessing import Preprocessing
 class Dataset:
 
     def __init__(self, DEBUG_MODE, img_dir, label_dir, test_dir, validation_split_ratio, batch_size, random_sized_crops_min,
-                 input_size, augment_color, num_parallel_calls=8):
+                 input_size, augment_color, num_parallel_calls=8, predict_on_different_orientations=True):
         self.DEBUG_MODE = DEBUG_MODE
         self.img_dir = img_dir
         self.label_dir = label_dir
@@ -23,6 +23,7 @@ class Dataset:
         self.input_size = input_size
         self.augment_color = augment_color
         self.num_parallel_calls = num_parallel_calls
+        self.predict_on_different_orientations = predict_on_different_orientations
 
         self.x_train_filenames = None
         self.x_val_filenames = None
@@ -82,19 +83,23 @@ class Dataset:
         label_img = tf.image.decode_png(label_img_str, channels=1)
         return img, label_img
 
-    def _internal_get_dataset(self, x, y, preprocessing_function, shuffle, repeat):
-        num_files = len(x)
+    def _internal_get_dataset(self, x, y, preprocessing_function, shuffle, repeat, is_batched_first):
         dataset = tf.data.Dataset.from_tensor_slices((x, y))
         dataset = dataset.map(self._process_pathnames, num_parallel_calls=self.num_parallel_calls)
-        dataset = dataset.map(preprocessing_function, num_parallel_calls=self.num_parallel_calls)
+
+        if not is_batched_first:
+            dataset = dataset.map(preprocessing_function, num_parallel_calls=self.num_parallel_calls)
 
         if shuffle:
-            dataset = dataset.shuffle(num_files, seed=111, reshuffle_each_iteration=True)
+            dataset = dataset.shuffle(self.batch_size*50, seed=111, reshuffle_each_iteration=True)
+
+        dataset = dataset.batch(self.batch_size)
+
+        if is_batched_first:
+            dataset = dataset.map(preprocessing_function, num_parallel_calls=self.num_parallel_calls)
 
         if repeat:
             dataset = dataset.repeat()
-
-        dataset = dataset.batch(self.batch_size)
 
         return dataset
 
@@ -114,33 +119,44 @@ class Dataset:
             'change_color': False
         }
 
-        test_config = {
-            'mode': 'test',
-            'random_sized_crops_min': self.random_sized_crops_min,
-            'input_size': self.input_size,
-            'change_color': False
-        }
-
         train_preprocessing_fn = functools.partial(Preprocessing.augment, **train_config)
         validation_preprocessing_fn = functools.partial(Preprocessing.augment, **validation_config)
-        test_preprocessing_fn = functools.partial(Preprocessing.augment, **test_config)
+
+        if self.predict_on_different_orientations:
+            test_config = {
+                'input_size': self.input_size
+            }
+            test_preprocessing_fn = functools.partial(Preprocessing.test_augment, **test_config)
+            is_batched_first = True
+        else:
+            test_config = {
+                'mode': 'test',
+                'random_sized_crops_min': self.random_sized_crops_min,
+                'input_size': self.input_size,
+                'change_color': False
+            }
+            test_preprocessing_fn = functools.partial(Preprocessing.augment, **test_config)
+            is_batched_first = False
 
         train_dataset = self._internal_get_dataset(x=self.x_train_filenames,
                                                    y=self.y_train_filenames,
                                                    preprocessing_function=train_preprocessing_fn,
                                                    shuffle=True,
-                                                   repeat=True)
+                                                   repeat=True,
+                                                   is_batched_first=False)
 
         validation_dataset = self._internal_get_dataset(x=self.x_val_filenames,
                                                         y=self.y_val_filenames,
                                                         preprocessing_function=validation_preprocessing_fn,
                                                         shuffle=False,
-                                                        repeat=True)
+                                                        repeat=True,
+                                                        is_batched_first=False)
 
         test_dataset = self._internal_get_dataset(x=self.x_test_filenames,
                                                   y=self.x_test_filenames,
                                                   preprocessing_function=test_preprocessing_fn,
                                                   shuffle=False,
-                                                  repeat=False)
+                                                  repeat=False,
+                                                  is_batched_first=is_batched_first)
 
         return train_dataset, validation_dataset, test_dataset

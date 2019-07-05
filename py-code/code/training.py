@@ -23,10 +23,19 @@ mpl.rcParams['axes.grid'] = False
 mpl.rcParams['figure.figsize'] = (12, 12)
 
 
+class TensorBoardWithLR(tf.keras.callbacks.TensorBoard):
+    def __init__(self, log_dir, write_graph):
+        super().__init__(log_dir=log_dir, write_graph=write_graph)
+
+    def on_epoch_end(self, epoch, logs=None):
+        logs.update({'learning_rate': tf.keras.backend.eval(self.model.optimizer.lr)})
+        super().on_epoch_end(epoch, logs)
+
+
 def create_callbacks():
     callbacks = []
 
-    tensorboard_callback = tf.keras.callbacks.TensorBoard(
+    tensorboard_callback = TensorBoardWithLR(
         log_dir=logdir,
         write_graph=True
     )
@@ -40,14 +49,14 @@ def create_callbacks():
         save_weights_only=False)
 
     early_stopping_callback = tf.keras.callbacks.EarlyStopping(monitor='val_loss',
-                                                               patience=30,
+                                                               patience=20,
                                                                verbose=1,
                                                                restore_best_weights=True)
 
     reduce_lr_on_plateau_callback = tf.keras.callbacks.ReduceLROnPlateau(monitor='loss',
                                                                          factor=0.5,
                                                                          patience=10,
-                                                                         min_delta=0.001,
+                                                                         min_delta=0.00001,
                                                                          min_lr=1e-6,
                                                                          cooldown=5,
                                                                          verbose=1)
@@ -69,6 +78,9 @@ def zip_code(path, ziph):
 
 if __name__ == "__main__":
 
+    tf.random.set_random_seed(324)
+    np.random.seed(324)
+
     logdir = os.path.join("../runs", datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
     os.mkdir(logdir)
 
@@ -83,14 +95,17 @@ if __name__ == "__main__":
     label_dir = '../../competition-data/training/groundtruth'
     test_dir = '../../competition-data/test'
 
-    validation_split_ratio = 0.2
+    google_img_dir = '../../google-maps-data/images'
+    google_label_dir = '../../google-maps-data/groundtruth'
+    google_test_dir = '../../competition-data/test'
+
+    validation_split_ratio = 0.15
 
     random_sized_crops_min = 336  # randomly crops random sized patch, this is resized later (adds scale augmentation, only training!)
     augment_color = True  # applies slight random hue, contrast, brightness change only on training data
 
     input_size = 256
 
-    learning_rate = 1e-3
     batch_size = 8
     epochs = 100
 
@@ -108,8 +123,21 @@ if __name__ == "__main__":
 
     train_dataset, validation_dataset, test_dataset = dataset.get_datasets()
 
+    google_dataset = Dataset(DEBUG_MODE=DEBUG_MODE,
+                             img_dir=google_img_dir,
+                             label_dir=google_label_dir,
+                             test_dir=google_test_dir,
+                             validation_split_ratio=validation_split_ratio,
+                             batch_size=batch_size,
+                             random_sized_crops_min=random_sized_crops_min,
+                             input_size=input_size,
+                             augment_color=augment_color,
+                             num_parallel_calls=8)
+
+    google_train_dataset, google_validation_dataset, google_test_dataset = google_dataset.get_datasets()
+
     if DEBUG_MODE:
-        dummy_dataset, _, _ = dataset.get_datasets()
+        dummy_dataset, _, _ = google_dataset.get_datasets()
 
         data_aug_iter = dummy_dataset.make_one_shot_iterator()
         next_element = data_aug_iter.get_next()
@@ -122,7 +150,7 @@ if __name__ == "__main__":
                 img = batch_of_imgs[i]
 
                 plt.subplot(batch_size, 2, i * 2 + 1)
-                plt.imshow(img.astype(np.uint8))
+                plt.imshow(img)
 
                 plt.subplot(batch_size, 2, i * 2 + 2)
                 plt.imshow(label[i, :, :, 0], cmap='gray')
@@ -131,22 +159,20 @@ if __name__ == "__main__":
     callbacks = create_callbacks()
 
     optimizer = tf.keras.optimizers.Adam(lr=1e-3)
-    base_model = MobilenetV2SpatialPyramid(input_shape=(input_size, input_size, 3), optimizer=optimizer)
+    base_model = BaselineModel(input_shape=(input_size, input_size, 3), optimizer=optimizer)
     model = base_model.get_model()
     model.compile(optimizer=optimizer,
                   loss=LossesMetrics.dice_loss,
                   metrics=[LossesMetrics.dice_loss, LossesMetrics.root_mean_squared_error])
     print(model.summary())
-    model.fit(x=train_dataset,
-              steps_per_epoch=5 * int(np.ceil(dataset.num_train_examples / float(batch_size))),
-              epochs=20,
-              validation_data=validation_dataset,
-              validation_steps=int(np.ceil(dataset.num_val_examples / float(batch_size))),
+    model.fit(x=google_train_dataset,
+              steps_per_epoch=int(np.ceil(google_dataset.num_train_examples / float(batch_size))),
+              epochs=300,
+              validation_data=google_validation_dataset,
+              validation_steps=int(np.ceil(google_dataset.num_val_examples / float(batch_size))),
               callbacks=callbacks)
 
-    optimizer = tf.keras.optimizers.Adam(lr=1e-4)
-    for layer in model.layers:
-        layer.trainable = True
+    optimizer = tf.keras.optimizers.Adam(lr=1e-5)
     model.compile(optimizer=optimizer,
                   loss=LossesMetrics.dice_loss,
                   metrics=[LossesMetrics.dice_loss, LossesMetrics.root_mean_squared_error])
