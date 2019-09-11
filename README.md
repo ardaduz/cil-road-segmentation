@@ -32,10 +32,6 @@ Running additional-data/collect_data.py using additional-data/input_cities.csv p
 and city bounding boxes, extra data can be gathered. The Google Drive link to already gathered Google Maps data:
 https://drive.google.com/open?id=1aXjASwNVKF6bc4CWXcC_TU6Q2BfUr5Lp
 
-### google-maps-data
-If you want to reproduce the results, please download the additional data that we used using the link above,
-unzip the file and replace ./google-maps-data empty folder in the root directory which is placed only for guidance purposes.
-
 ### baseline-graph-cut
 Please install PyMaxflow library following the instructions in ./baseline-graph-cut/PyMaxflow-master/README.rst
 
