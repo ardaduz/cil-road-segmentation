@@ -112,7 +112,6 @@ class GraphCutSegmentation:
 
         return unariesN
 
-    # TASK 2.3
     def __get_pairwise(self, image, sigma):
         """
         Get pairwise terms for each pairs of pixels on image

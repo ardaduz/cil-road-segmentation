@@ -192,12 +192,13 @@ if __name__ == "__main__":
                       random_sized_crops_min=random_sized_crops_min,
                       input_size=input_size,
                       augment_color=augment_color,
-                      num_parallel_calls=8)
+                      num_parallel_calls=8,
+                      predict_on_different_orientations=False)
 
     train_dataset, validation_dataset, test_dataset = dataset.get_datasets()
 
     # MODEL 1
-    model_path = "model_epoch199_rmse0.0397.hdf5"
+    model_path = "xception_based_model_with_two_pyramids_best_checkpoint.hdf5"
     model = models.load_model(model_path, custom_objects={'root_mean_squared_error': LossesMetrics.root_mean_squared_error,
                                                           'bce_dice_loss': LossesMetrics.bce_dice_loss,
                                                           'dice_loss': LossesMetrics.dice_loss})
@@ -208,7 +209,7 @@ if __name__ == "__main__":
     xception_model.load_weights(os.path.join(logdir, "best_model_weights.hdf5"))
 
     # MODEL 2
-    model_path = "model_epoch172_rmse0.0456.hdf5"
+    model_path = "mobilenetv2_based_model_best_checkpoint.hdf5"
     model = models.load_model(model_path, custom_objects={'root_mean_squared_error': LossesMetrics.root_mean_squared_error,
                                                           'bce_dice_loss': LossesMetrics.bce_dice_loss,
                                                           'dice_loss': LossesMetrics.dice_loss})
@@ -219,7 +220,7 @@ if __name__ == "__main__":
     mobilenet_model.load_weights(os.path.join(logdir, "best_model_weights.hdf5"))
 
     # MODEL 3
-    model_path = "best_model.hdf5"
+    model_path = "xception_based_model_with_many_pyramids_best_checkpoint.hdf5"
     model = models.load_model(model_path, custom_objects={'root_mean_squared_error': LossesMetrics.root_mean_squared_error,
                                                           'bce_dice_loss': LossesMetrics.bce_dice_loss,
                                                           'dice_loss': LossesMetrics.dice_loss})
@@ -234,7 +235,8 @@ if __name__ == "__main__":
                            models=[xceptionarda_model, xception_model, mobilenet_model],
                            logdir=logdir,
                            model_path=model_path,
-                           submission_filename=submission_filename)
+                           submission_filename=submission_filename,
+                           predict_on_different_orientations=False)
 
     predictor.predict(batch_size=batch_size)
     predictor.submit()
